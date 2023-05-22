@@ -271,3 +271,4 @@ DJANGO_PROJECT
 locale/*
 manage.py
 examples/
+azbankgateways-old/
