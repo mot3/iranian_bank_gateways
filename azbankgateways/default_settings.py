@@ -1,42 +1,38 @@
 """Default settings for messaging."""
 
-import django
-from django.conf import settings
+from functools import lru_cache
+from config import settings as psetting
+from pydantic import BaseSettings
 
-from azbankgateways.apps import AZIranianBankGatewaysConfig
+iranian_bank_gateways = "engines.iranian_bank_gateways"
 
-if django.__version__ >= "3.0":
-    from django.db import models
 
-    TEXT_CHOICES = models.TextChoices
-else:
-    from .models.enum_django import TextChoices
+# TODO: refactor configs
+class BanksSettings(BaseSettings):
+    BANK_CLASS: dict = {
+        "SEP": f"{iranian_bank_gateways}.banks.SEP",
+        "IDPAY": f"{iranian_bank_gateways}.banks.IDPay",
+    }
+    _AZ_IRANIAN_BANK_GATEWAYS = {}
+    BANK_PRIORITIES = []
+    BANK_GATEWAYS = {
+        "SEP": {
+            "MERCHANT_CODE": "",
+            "TERMINAL_CODE": ""
+        },
+        "IDPAY": {},
+    }
 
-    TEXT_CHOICES = TextChoices
-BANK_CLASS = getattr(
-    settings,
-    "CLASS",
-    {
-        "BMI": "azbankgateways.banks.BMI",
-        "SEP": "azbankgateways.banks.SEP",
-        "ZARINPAL": "azbankgateways.banks.Zarinpal",
-        "IDPAY": "azbankgateways.banks.IDPay",
-        "ZIBAL": "azbankgateways.banks.Zibal",
-        "BAHAMTA": "azbankgateways.banks.Bahamta",
-        "MELLAT": "azbankgateways.banks.Mellat",
-	"PAYV1": "azbankgateways.banks.PayV1",
-    },
-)
-_AZ_IRANIAN_BANK_GATEWAYS = getattr(settings, "AZ_IRANIAN_BANK_GATEWAYS", {})
-BANK_PRIORITIES = _AZ_IRANIAN_BANK_GATEWAYS.get("BANK_PRIORITIES", [])
-BANK_GATEWAYS = _AZ_IRANIAN_BANK_GATEWAYS.get("GATEWAYS", {})
-BANK_DEFAULT = _AZ_IRANIAN_BANK_GATEWAYS.get("DEFAULT", "BMI")
-SETTING_VALUE_READER_CLASS = _AZ_IRANIAN_BANK_GATEWAYS.get(
-    "SETTING_VALUE_READER_CLASS", "azbankgateways.readers.DefaultReader"
-)
-CURRENCY = _AZ_IRANIAN_BANK_GATEWAYS.get("CURRENCY", "IRR")
-TRACKING_CODE_QUERY_PARAM = _AZ_IRANIAN_BANK_GATEWAYS.get("TRACKING_CODE_QUERY_PARAM", "tc")
-TRACKING_CODE_LENGTH = _AZ_IRANIAN_BANK_GATEWAYS.get("TRACKING_CODE_LENGTH", 16)
-CALLBACK_NAMESPACE = f"{AZIranianBankGatewaysConfig.name}:callback"
-GO_TO_BANK_GATEWAY_NAMESPACE = f"{AZIranianBankGatewaysConfig.name}:go-to-bank-gateway"
-IS_SAMPLE_FORM_ENABLE = _AZ_IRANIAN_BANK_GATEWAYS.get("IS_SAMPLE_FORM_ENABLE", False)
+    BANK_DEFAULT = "SEP"
+    SETTING_VALUE_READER_CLASS = f"{iranian_bank_gateways}.readers.DefaultReader"
+
+    CURRENCY = "IRT"
+    CALLBACK_NAMESPACE = f"{url}/payment/receive"
+
+
+@lru_cache()
+def get_settings() -> BanksSettings:
+    return BanksSettings()
+
+
+settings = get_settings()
