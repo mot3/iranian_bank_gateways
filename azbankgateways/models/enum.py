@@ -1,22 +1,14 @@
-from django.utils.translation import gettext_lazy as _
-
-import azbankgateways.default_settings as settings
+from enum import Enum
 
 
-class BankType(settings.TEXT_CHOICES):
-    BMI = "BMI", _("BMI")
-    SEP = "SEP", _("SEP")
-    ZARINPAL = "ZARINPAL", _("Zarinpal")
-    IDPAY = "IDPAY", _("IDPay")
-    ZIBAL = "ZIBAL", _("Zibal")
-    BAHAMTA = "BAHAMTA", _("Bahamta")
-    MELLAT = "MELLAT", _("Mellat")
-    PAYV1 = "PAYV1", _("PayV1")
+class BankType(str, Enum):
+    SEP = "SEP"
+    IDPAY = "IDPAY"
 
 
-class CurrencyEnum(settings.TEXT_CHOICES):
-    IRR = "IRR", _("Rial")
-    IRT = "IRT", _("Toman")
+class CurrencyEnum(str, Enum):
+    IRR = "IRR"
+    IRT = "IRT"
 
     @classmethod
     def rial_to_toman(cls, amount):
@@ -27,12 +19,12 @@ class CurrencyEnum(settings.TEXT_CHOICES):
         return amount * 10
 
 
-class PaymentStatus(settings.TEXT_CHOICES):
-    WAITING = _("Waiting")
-    REDIRECT_TO_BANK = _("Redirect to bank")
-    RETURN_FROM_BANK = _("Return from bank")
-    CANCEL_BY_USER = _("Cancel by user")
-    EXPIRE_GATEWAY_TOKEN = _("Expire gateway token")
-    EXPIRE_VERIFY_PAYMENT = _("Expire verify payment")
-    COMPLETE = _("Complete")
-    ERROR = _("Unknown error acquired")
+class PaymentStatus(str, Enum):
+    WAITING = "Waiting"
+    REDIRECT_TO_BANK = "Redirect to bank"
+    RETURN_FROM_BANK = "Return from bank"
+    CANCEL_BY_USER = "Cancel by user"
+    EXPIRE_GATEWAY_TOKEN = "Expire gateway token"
+    EXPIRE_VERIFY_PAYMENT = "Expire verify payment"
+    COMPLETE = "Complete"
+    ERROR = "Unknown error acquired"
