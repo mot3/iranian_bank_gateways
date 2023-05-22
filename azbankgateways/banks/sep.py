@@ -1,13 +1,14 @@
 import logging
 
-import requests
-from zeep import Client, Transport
+import aiohttp
+from aiohttp.client_exceptions import ServerTimeoutError, ClientConnectionError
 
-from azbankgateways.banks import BaseBank
-from azbankgateways.exceptions import BankGatewayConnectionError, SettingDoesNotExist
-from azbankgateways.exceptions.exceptions import BankGatewayRejectPayment
-from azbankgateways.models import BankType, CurrencyEnum, PaymentStatus
-from azbankgateways.utils import get_json
+from db.mongo import MongoCrud
+
+from .banks import BaseBank, Bank
+from ..exceptions import BankGatewayConnectionError, SettingDoesNotExist
+from ..exceptions.exceptions import BankGatewayRejectPayment
+from ..models import BankType, CurrencyEnum, PaymentStatus
 
 
 class SEP(BaseBank):
@@ -18,17 +19,19 @@ class SEP(BaseBank):
         super(SEP, self).__init__(**kwargs)
         self.set_gateway_currency(CurrencyEnum.IRR)
         self._token_api_url = "https://sep.shaparak.ir/MobilePG/MobilePayment"
-        self._payment_url = "https://sep.shaparak.ir/OnlinePG/OnlinePG"
-        self._verify_api_url = "https://verify.sep.ir/Payments/ReferencePayment.asmx?WSDL"
+        self._payment_url = "https://sep.shaparak.ir/OnlinePG/SendToken"
+        self._verify_api_url = "https://sep.shaparak.ir/verifyTxnRandomSessionkey/ipg/VerifyTransaction"
 
     def get_bank_type(self):
         return BankType.SEP
 
     def set_default_settings(self):
+        super(SEP, self).set_default_settings()
         for item in ["MERCHANT_CODE", "TERMINAL_CODE"]:
             if item not in self.default_setting_kwargs:
                 raise SettingDoesNotExist()
-            setattr(self, f"_{item.lower()}", self.default_setting_kwargs[item])
+            setattr(self, f"_{item.lower()}",
+                    self.default_setting_kwargs[item])
 
     def get_pay_data(self):
         data = {
@@ -45,10 +48,10 @@ class SEP(BaseBank):
     def prepare_pay(self):
         super(SEP, self).prepare_pay()
 
-    def pay(self):
-        super(SEP, self).pay()
+    async def pay(self):
+        await super(SEP, self).pay()
         data = self.get_pay_data()
-        response_json = self._send_data(self._token_api_url, data)
+        response_json = await self._send_data(self._token_api_url, data)
         if str(response_json["status"]) == "1":
             token = response_json["token"]
             self._set_reference_number(token)
@@ -77,23 +80,40 @@ class SEP(BaseBank):
     verify from gateway
     """
 
-    def prepare_verify_from_gateway(self):
-        super(SEP, self).prepare_verify_from_gateway()
+    async def prepare_verify_from_gateway(self):
+        await super(SEP, self).prepare_verify_from_gateway()
         request = self.get_request()
-        tracking_code = request.GET.get("ResNum", None)
-        token = request.GET.get("Token", None)
-        self._set_tracking_code(tracking_code)
-        self._set_bank_record()
-        ref_num = request.GET.get("RefNum", None)
-        if request.GET.get("State", "NOK") == "OK" and ref_num:
-            self._set_reference_number(ref_num)
-            self._bank.reference_number = ref_num
-            extra_information = f"TRACENO={request.GET.get('TRACENO', None)}, RefNum={ref_num}, Token={token}"
-            self._bank.extra_information = extra_information
-            self._bank.save()
 
-    def verify_from_gateway(self, request):
-        super(SEP, self).verify_from_gateway(request)
+        form = await request.form()
+
+        tracking_code = form.get("ResNum", None)
+        ref_num = form.get("RefNum", None)
+
+        self._set_tracking_code(tracking_code)
+        self._set_reference_number(ref_num)
+
+        await self._set_bank_record()
+
+        token = form.get("Token", None)
+        trace_no = form.get('TraceNo', None)
+        secure_pan = form.get('SecurePan', None)
+
+        if form.get("State", "NOK") == "OK" and ref_num:
+            self._bank.token = ref_num
+            self._bank.trace_no = trace_no
+            self._bank.secure_pan = secure_pan
+
+    
+
+            await MongoCrud.update_one_set(
+                self._db, Bank,
+                {Bank.id: self._bank.id},
+                self._bank)
+        else:
+            await self._set_payment_status(PaymentStatus.CANCEL_BY_USER)
+
+    async def verify_from_gateway(self, request):
+        await super(SEP, self).verify_from_gateway(request)
 
     """
     verify
@@ -101,46 +121,37 @@ class SEP(BaseBank):
 
     def get_verify_data(self):
         super(SEP, self).get_verify_data()
-        data = self.get_reference_number(), self._merchant_code
+        data = {
+            "RefNum": self.get_reference_number(),
+            "TerminalNumber": self._merchant_code
+        }
         return data
 
-    def prepare_verify(self, tracking_code):
-        super(SEP, self).prepare_verify(tracking_code)
+    async def prepare_verify(self, tracking_code):
+        await super(SEP, self).prepare_verify(tracking_code)
 
-    def verify(self, transaction_code):
-        super(SEP, self).verify(transaction_code)
+    async def verify(self, transaction_code):
+        await super(SEP, self).verify(transaction_code)
         data = self.get_verify_data()
-        client = self._get_client(self._verify_api_url)
-        result = client.service.verifyTransaction(*data)
-        if result == self.get_gateway_amount():
-            self._set_payment_status(PaymentStatus.COMPLETE)
+        result = await self._send_data(self._verify_api_url, data)
+        if result['ResultCode'] == 0:
+            await self._set_payment_status(PaymentStatus.COMPLETE)
         else:
-            self._set_payment_status(PaymentStatus.CANCEL_BY_USER)
+            await self._set_payment_status(PaymentStatus.CANCEL_BY_USER)
             logging.debug("SEP gateway unapprove payment")
 
-    def _send_data(self, api, data):
+    async def _send_data(self, api, data):
         try:
-            response = requests.post(api, json=data, timeout=5)
-        except requests.Timeout:
+            async with aiohttp.ClientSession() as client:
+                async with client.post(api, json=data, timeout=5) as response:
+                    response_json = await response.json()
+
+        except ServerTimeoutError:
             logging.exception("SEP time out gateway {}".format(data))
             raise BankGatewayConnectionError()
-        except requests.ConnectionError:
+        except ClientConnectionError:
             logging.exception("SEP time out gateway {}".format(data))
             raise BankGatewayConnectionError()
 
-        response_json = get_json(response)
         self._set_transaction_status_text(response_json.get("errorDesc"))
         return response_json
-
-    @staticmethod
-    def _get_client(url):
-        headers = {
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0",
-        }
-        transport = Transport(timeout=5, operation_timeout=5)
-        transport.session.headers = headers
-        client = Client(url, transport=transport)
-        return client

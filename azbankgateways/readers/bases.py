@@ -2,14 +2,14 @@ import abc
 
 import six
 
-from azbankgateways import default_settings as settings
-from azbankgateways.models import BankType
+from ..models import BankType
+from ..default_settings import settings
 
 
 @six.add_metaclass(abc.ABCMeta)
 class Reader:
     @abc.abstractmethod
-    def read(self, bank_type: BankType, identifier: str) -> dict:
+    def read(self, bank_type: BankType) -> dict:
         """
 
         :param bank_type:
@@ -24,17 +24,17 @@ class Reader:
         """
         pass
 
-    def klass(self, bank_type: BankType, identifier: str) -> dict:
+    def klass(self, bank_type: BankType) -> dict:
         return settings.BANK_CLASS[bank_type]
 
     @abc.abstractmethod
-    def get_bank_priorities(self, identifier: str) -> list:
+    def get_bank_priorities(self) -> list:
         pass
 
     @abc.abstractmethod
-    def default(self, identifier: str):
+    def default(self):
         pass
 
     @abc.abstractmethod
-    def currency(self, identifier: str):
+    def currency(self):
         pass
