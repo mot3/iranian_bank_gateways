@@ -1,11 +1,12 @@
-from azbankgateways import default_settings as settings
-from azbankgateways.models import BankType
+from ..models import BankType
 
 from .bases import Reader
 
+from ..default_settings import settings
+
 
 class DefaultReader(Reader):
-    def read(self, bank_type: BankType, identifier: str) -> dict:
+    def read(self, bank_type: BankType) -> dict:
         """
 
         :param bank_type:
@@ -20,13 +21,13 @@ class DefaultReader(Reader):
         """
         return settings.BANK_GATEWAYS[bank_type]
 
-    def default(self, identifier: str):
+    def default(self):
         return settings.BANK_DEFAULT
 
-    def currency(self, identifier: str):
+    def currency(self):
         return settings.CURRENCY
 
-    def get_bank_priorities(self, identifier: str) -> list:
-        priorities = [self.default(identifier)]
+    def get_bank_priorities(self,) -> list:
+        priorities = [self.default()]
         priorities = list(dict.fromkeys(priorities + settings.BANK_PRIORITIES))
         return priorities
